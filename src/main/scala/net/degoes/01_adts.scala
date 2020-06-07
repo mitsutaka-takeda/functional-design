@@ -25,12 +25,20 @@ object credit_card {
    * Using only sealed traits and case classes, create an immutable data model
    * of a credit card, which must have:
    *
-   *  * Number
-   *  * Name
-   *  * Expiration date
-   *  * Security code
+   * * Number
+   * * Name
+   * * Expiration date
+   * * Security code
    */
-  type CreditCard
+  final case class Number(value: Long)
+
+  final case class Name(value: String)
+
+  final case class ExpirationDate(value: Instant)
+
+  final case class SecurityCode(value: String)
+
+  final case class CreditCard(number: Number, name: Name, expirationDate: ExpirationDate, securityCode: SecurityCode)
 
   /**
    * EXERCISE 2
@@ -40,7 +48,15 @@ object credit_card {
    * or a digital product, such as a book or movie, or access to an event, such
    * as a music concert or film showing.
    */
-  type Product
+  sealed trait Product
+
+  object Product {
+
+    sealed trait PhysicalProduct extends Product
+
+    sealed trait DigitalProduct extends Product
+
+  }
 
   /**
    * EXERCISE 3
@@ -49,7 +65,16 @@ object credit_card {
    * of a product price, which could be one-time purchase fee, or a recurring
    * fee on some regular interval.
    */
-  type PricingScheme
+  sealed trait PricingScheme
+
+  object PricingScheme {
+
+    sealed trait OneTimePurchaseFee extends PricingScheme
+
+    sealed trait RecurringFee extends PricingScheme
+
+  }
+
 }
 
 /**
@@ -66,34 +91,49 @@ object events {
    * Refactor the object-oriented data model in this section to a more
    * functional one, which uses only sealed traits and case classes.
    */
-  abstract class Event(val id: Int) {
+  final case class EventId(id: Int)
+
+  sealed trait Event {
+    def id: Int
 
     def time: Instant
   }
 
-  // Events are either UserEvent (produced by a user) or DeviceEvent (produced by a device),
-  // please don't extend both it will break code!!!
-  trait UserEvent extends Event {
+  sealed trait UserEvent extends Event {
     def userName: String
   }
 
-  // Events are either UserEvent (produced by a user) or DeviceEvent (produced by a device),
-  // please don't extend both it will break code!!!
-  trait DeviceEvent extends Event {
+  sealed trait DeviceEvent extends Event {
     def deviceId: Int
   }
 
-  class SensorUpdated(id: Int, val deviceId: Int, val time: Instant, val reading: Option[Double])
-      extends Event(id)
-      with DeviceEvent
 
-  class DeviceActivated(id: Int, val deviceId: Int, val time: Instant) extends Event(id) with DeviceEvent
+  //  abstract class Event(val id: Int) {
+  //
+  //    def time: Instant
+  //  }
+  //
+  //  // Events are either UserEvent (produced by a user) or DeviceEvent (produced by a device),
+  //  // please don't extend both it will break code!!!
+  //  trait UserEvent extends Event {
+  //    def userName: String
+  //  }
+  //
+  //  // Events are either UserEvent (produced by a user) or DeviceEvent (produced by a device),
+  //  // please don't extend both it will break code!!!
+  //  trait DeviceEvent extends Event {
+  //    def deviceId: Int
+  //  }
 
-  class UserPurchase(id: Int, val item: String, val price: Double, val time: Instant, val userName: String)
-      extends Event(id)
-      with UserEvent
+  case class SensorUpdated(id: Int, deviceId: Int, time: Instant, reading: Option[Double])
+    extends DeviceEvent
 
-  class UserAccountCreated(id: Int, val userName: String, val time: Instant) extends Event(id) with UserEvent
+  case class DeviceActivated(id: Int, deviceId: Int, time: Instant) extends DeviceEvent
+
+  case class UserPurchase(id: Int, item: String, price: Double, time: Instant, userName: String)
+    extends UserEvent
+
+  case class UserAccountCreated(id: Int, userName: String, time: Instant) extends UserEvent
 
 }
 
@@ -104,8 +144,11 @@ object events {
  * of some type (which is not relevant for these exercises).
  */
 object documents {
+
   final case class UserId(identifier: String)
+
   final case class DocId(identifier: String)
+
   final case class DocContent(body: String)
 
   /**
@@ -114,7 +157,7 @@ object documents {
    * Using only sealed traits and case classes, create a simplified but somewhat
    * realistic model of a Document.
    */
-  type Document
+  final case class Document(id: DocId, author: UserId, content: DocContent, createdAt: Instant)
 
   /**
    * EXERCISE 2
@@ -123,7 +166,10 @@ object documents {
    * type that a given user might have with respect to a document. For example,
    * some users might have read-only permission on a document.
    */
-  type AccessType
+  sealed trait AccessType
+
+  sealed trait ReadOnly extends AccessType
+  sealed trait Write extends AccessType
 
   /**
    * EXERCISE 3
@@ -132,7 +178,7 @@ object documents {
    * permissions that a user has on a set of documents they have access to.
    * Do not store the document contents themselves in this model.
    */
-  type DocPermissions
+  final case class DocPermissions(permissions: Map[DocId, AccessType])
 }
 
 /**
@@ -147,7 +193,9 @@ object bank {
    *
    * Using only sealed traits and case classes, develop a model of a customer at a bank.
    */
-  type Customer
+  final case class CustomerId(identifier: String)
+  final case class CustomerName(name: String)
+  final case class Customer(id: CustomerId, name: CustomerName)
 
   /**
    * EXERCISE 2
@@ -157,7 +205,9 @@ object bank {
    * against a given currency. Another account type allows the user to earn
    * interest at a given rate for the holdings in a given currency.
    */
-  type AccountType
+  sealed trait AccountType
+  sealed trait Checking extends AccountType
+  sealed trait Saving extends AccountType
 
   /**
    * EXERCISE 3
@@ -166,7 +216,7 @@ object bank {
    * account, including details on the type of bank account, holdings, customer
    * who owns the bank account, and customers who have access to the bank account.
    */
-  type Account
+  final case class Account(owner: Customer, accountType: AccountType, customers: Set[CustomerId])
 }
 
 /**

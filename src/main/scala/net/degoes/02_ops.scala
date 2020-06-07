@@ -1,4 +1,9 @@
 package net.degoes
+
+import java.io.{BufferedInputStream, SequenceInputStream}
+
+import scala.util.control.NonFatal
+
 /*
  * INTRODUCTION
  *
@@ -30,9 +35,11 @@ package net.degoes
  * servers using Java's InputStream.
  */
 object input_stream {
+
   import java.io.InputStream
 
-  final case class IStream(createInputStream: () => InputStream) { self =>
+  final case class IStream(createInputStream: () => InputStream) {
+    self =>
 
     /**
      * EXERCISE 1
@@ -42,7 +49,10 @@ object input_stream {
      * exhausted, it will close the first input stream, make the second
      * input stream, and continue reading from the second one.
      */
-    def ++(that: IStream): IStream = ???
+    def ++(that: IStream): IStream = IStream {
+      () =>
+        new SequenceInputStream(self.createInputStream(), that.createInputStream())
+    }
 
     /**
      * EXERCISE 2
@@ -51,7 +61,14 @@ object input_stream {
      * try to create the first input stream, but if that fails by throwing
      * an exception, it will then try to create the second input stream.
      */
-    def orElse(that: IStream): IStream = ???
+    def orElse(that: IStream): IStream = IStream {
+      () =>
+        try {
+          self.createInputStream()
+        } catch {
+          case NonFatal(_) => that.createInputStream()
+        }
+    }
 
     /**
      * EXERCISE 3
@@ -60,7 +77,9 @@ object input_stream {
      * create the input stream, but wrap it in Java's `BufferedInputStream`
      * before returning it.
      */
-    def buffered: IStream = ???
+    def buffered: IStream = IStream {
+      () => new BufferedInputStream(self.createInputStream())
+    }
   }
 
   /**
@@ -70,9 +89,9 @@ object input_stream {
    * or will read from the concatenation of all `secondaries`,
    * and will buffer everything.
    */
-  lazy val solution: IStream = ???
+  lazy val solution: IStream = primary.orElse(secondaries.reduce(_ ++ _)).buffered
 
-  lazy val primary: IStream           = ???
+  lazy val primary: IStream = ???
   lazy val secondaries: List[IStream] = ???
 }
 
@@ -83,10 +102,13 @@ object input_stream {
  * direct them to specific folders based on custom criteria.
  */
 object email_filter {
+
   final case class Address(emailAddress: String)
+
   final case class Email(sender: Address, to: List[Address], subject: String, body: String)
 
-  final case class EmailFilter(matches: Email => Boolean) { self =>
+  final case class EmailFilter(matches: Email => Boolean) {
+    self =>
 
     /**
      * EXERCISE 1
@@ -94,7 +116,9 @@ object email_filter {
      * Add an "and" operator that will match an email if both the first and
      * the second email filter match the email.
      */
-    def &&(that: EmailFilter): EmailFilter = ???
+    def &&(that: EmailFilter): EmailFilter = EmailFilter(
+      (e: Email) => self.matches(e) && that.matches(e)
+    )
 
     /**
      * EXERCISE 2
@@ -102,7 +126,9 @@ object email_filter {
      * Add an "or" operator that will match an email if either the first or
      * the second email filter match the email.
      */
-    def ||(that: EmailFilter): EmailFilter = ???
+    def ||(that: EmailFilter): EmailFilter = EmailFilter(
+      (e: Email) => self.matches(e) || that.matches(e)
+    )
 
     /**
      * EXERCISE 3
@@ -110,8 +136,9 @@ object email_filter {
      * Add a "negate" operator that will match an email if this email filter
      * does NOT match an email.
      */
-    def negate: EmailFilter = ???
+    def negate: EmailFilter = EmailFilter((e: Email) => !self.matches(e))
   }
+
   object EmailFilter {
     def senderIs(address: Address): EmailFilter = EmailFilter(_.sender == address)
 
@@ -130,7 +157,7 @@ object email_filter {
    * addressed to "john@doe.com". Build this filter up compositionally
    * by using the defined constructors and operators.
    */
-  lazy val emailFilter1 = ???
+  lazy val emailFilter1 = EmailFilter.subjectContains("discount") && EmailFilter.bodyContains("N95") && EmailFilter.recipientIs(Address("john@doe.com")).negate
 }
 
 /**
@@ -139,6 +166,7 @@ object email_filter {
  * Consider an email marketing platform, which allows users to upload contacts.
  */
 object contact_processing {
+
   final case class SchemaCSV(columnNames: List[String]) {
     def relocate(i: Int, j: Int): Option[SchemaCSV] =
       if (i < columnNames.length && j < columnNames.length)
@@ -150,7 +178,8 @@ object contact_processing {
     def add(name: String): SchemaCSV = copy(columnNames = columnNames ++ List(name))
   }
 
-  final case class ContactsCSV(schema: SchemaCSV, content: Vector[Vector[String]]) { self =>
+  final case class ContactsCSV(schema: SchemaCSV, content: Vector[Vector[String]]) {
+    self =>
     def get(column: String): Option[Vector[String]] =
       columnOf(column).map(i => content.map(row => row(i)))
 
@@ -167,8 +196,8 @@ object contact_processing {
 
     def get(row: Int, columnName: String): Option[String] =
       for {
-        col   <- columnOf(columnName)
-        row   <- content.lift(row)
+        col <- columnOf(columnName)
+        row <- content.lift(row)
         value <- row.lift(col)
       } yield value
 
@@ -206,12 +235,17 @@ object contact_processing {
   }
 
   sealed trait MappingResult[+A]
+
   object MappingResult {
+
     final case class Success[+A](warnings: List[String], value: A) extends MappingResult[A]
-    final case class Failure(errors: List[String])                 extends MappingResult[Nothing]
+
+    final case class Failure(errors: List[String]) extends MappingResult[Nothing]
+
   }
 
-  final case class SchemaMapping(map: ContactsCSV => MappingResult[ContactsCSV]) { self =>
+  final case class SchemaMapping(map: ContactsCSV => MappingResult[ContactsCSV]) {
+    self =>
 
     /**
      * EXERCISE 1
@@ -222,7 +256,16 @@ object contact_processing {
      * then the result must also fail. Only if both schema mappings succeed
      * can the resulting schema mapping succeed.
      */
-    def +(that: SchemaMapping): SchemaMapping = ???
+    def +(that: SchemaMapping): SchemaMapping = SchemaMapping(
+      c => self.map(c) match {
+        case MappingResult.Success(first, value) =>
+          that.map(value) match {
+            case MappingResult.Success(second, value) => MappingResult.Success(first ++ second, value)
+            case sf: MappingResult.Failure => sf
+          }
+        case f: MappingResult.Failure => f
+      }
+    )
 
     /**
      * EXERCISE 2
@@ -231,7 +274,12 @@ object contact_processing {
      * applying the effects of the first one, unless it fails, and in that
      * case, applying the effects of the second one.
      */
-    def orElse(that: SchemaMapping): SchemaMapping = ???
+    def orElse(that: SchemaMapping): SchemaMapping = SchemaMapping(
+      c => self.map(c) match {
+        case s: MappingResult.Success[ContactsCSV] => s
+        case _: MappingResult.Failure => that.map(c)
+      }
+    )
 
     /**
      * BONUS: EXERCISE 3
@@ -239,8 +287,28 @@ object contact_processing {
      * Add an `protect` operator that returns a new schema mapping that
      * preserve the specified column names in the final result.
      */
-    def protect(columnNames: Set[String]): SchemaMapping = ???
+    def protect(columnNames: Set[String]): SchemaMapping = SchemaMapping(
+      c => self.map(c) match {
+        case MappingResult.Success(warnings, value) =>
+          MappingResult.Success(warnings,
+            columnNames.map(p => p -> c.columnOf(p)).foldLeft(value) {
+              case (a, (p, i)) =>
+                i match {
+                  case Some(colIndex) =>
+                    if (colIndex < value.columnNames.length) {
+                      a.rename(value.columnNames(colIndex), p)
+                    } else {
+                      a
+                    }
+                  case None => a
+                }
+            })
+        case f: MappingResult.Failure => f
+      }
+
+    )
   }
+
   object SchemaMapping {
 
     /**
@@ -248,7 +316,9 @@ object contact_processing {
      *
      * Add a constructor for `SchemaMapping` that renames a column.
      */
-    def rename(oldName: String, newName: String): SchemaMapping = ???
+    def rename(oldName: String, newName: String): SchemaMapping = SchemaMapping(
+      c => MappingResult.Success(List.empty, c.rename(oldName, newName))
+    )
 
     /**
      * EXERCISE 5
@@ -257,7 +327,15 @@ object contact_processing {
      */
     def combine(leftColumn: String, rightColumn: String)(newName: String)(
       f: (String, String) => String
-    ): SchemaMapping = ???
+    ): SchemaMapping = SchemaMapping {
+      c =>
+        c.combine(leftColumn, rightColumn)(newName) { (l, r) => l + r } match {
+          case Some(value) =>
+            MappingResult.Success(List.empty, value)
+          case None =>
+            MappingResult.Failure(List(leftColumn, rightColumn).map(s => c.columnOf(s).toRight(s"column $s is missing")).collect { case Left(e) => e })
+        }
+    }
 
     /**
      * EXERCISE 5
@@ -265,7 +343,15 @@ object contact_processing {
      * Add a constructor for `SchemaMapping` that moves the column of the
      * specified name to the jth position.
      */
-    def relocate(column: String, j: Int): SchemaMapping = ???
+    def relocate(column: String, j: Int): SchemaMapping = SchemaMapping {
+      c =>
+        c.relocate(column, j) match {
+          case Some(value) => MappingResult.Success(List.empty, value)
+          case None => MappingResult.Failure(
+            List(c.columnOf(column).toRight(s"column $column is missing"), Either.cond(j < c.columnNames.length, (), s"index $j is out of bound")).collect { case Left(e) => e }
+          )
+        }
+    }
 
     /**
      * EXERCISE 6
@@ -273,7 +359,10 @@ object contact_processing {
      * Add a constructor for `SchemaMapping` that deletes the column of the
      * specified name.
      */
-    def delete(name: String): SchemaMapping = ???
+    def delete(name: String): SchemaMapping = SchemaMapping {
+      c =>
+        MappingResult.Success(List.empty, c.delete(name))
+    }
   }
 
   /**
@@ -283,7 +372,13 @@ object contact_processing {
    * company's official schema for contacts, by composing schema mappings
    * constructed from constructors and operators.
    */
-  lazy val schemaMapping: SchemaMapping = ???
+  lazy val schemaMapping: SchemaMapping =
+    (SchemaMapping.rename("email", "email_address")
+      + SchemaMapping.combine("fname", "lname")("full_name")((f, l) => s"$f $l")
+      + SchemaMapping.rename("stree", "street_address")
+      + SchemaMapping.rename("postal", "postal_code")
+      + SchemaMapping.relocate("full_name", 0)
+      )
 
   val UserUploadSchema: SchemaCSV =
     SchemaCSV(List("email", "fname", "lname", "country", "street", "postal"))
@@ -298,34 +393,57 @@ object contact_processing {
  * Consider a game such as FreeCell or Solitaire that is played using a deck of cards.
  */
 object ui_events {
+
   sealed trait Suit
+
   object Suit {
-    case object Clubs    extends Suit
+
+    case object Clubs extends Suit
+
     case object Diamonds extends Suit
-    case object Hearts   extends Suit
-    case object Spades   extends Suit
+
+    case object Hearts extends Suit
+
+    case object Spades extends Suit
+
   }
+
   sealed trait Rank
+
   object Rank {
-    case object Ace                   extends Rank
-    case object King                  extends Rank
-    case object Queen                 extends Rank
-    case object Jack                  extends Rank
+
+    case object Ace extends Rank
+
+    case object King extends Rank
+
+    case object Queen extends Rank
+
+    case object Jack extends Rank
+
     final case class Numbered(n: Int) extends Rank
+
   }
+
   trait Card {
     def suit: Suit
+
     def rank: Rank
   }
+
   sealed trait GameEvent
+
   object GameEvent {
+
     final case class CardClick(card: Card) extends GameEvent
+
   }
+
   trait GameController {
     def addListener(listener: Listener): Unit
   }
 
-  final case class Listener(onEvent: GameEvent => Unit) { self =>
+  final case class Listener(onEvent: GameEvent => Unit) {
+    self =>
 
     /**
      * EXERCISE 1
@@ -333,7 +451,11 @@ object ui_events {
      * Add a method `+` that composes two listeners into a single listener,
      * by sending each game event to both listeners.
      */
-    def +(that: Listener): Listener = ???
+    def +(that: Listener): Listener = Listener {
+      e =>
+        self.onEvent(e)
+        that.onEvent(e)
+    }
 
     /**
      * EXERCISE 2
@@ -342,7 +464,14 @@ object ui_events {
      * by sending each game event to either the left listener, if it does not
      * throw an exception, or the right listener, if the left throws an exception.
      */
-    def orElse(that: Listener): Listener = ???
+    def orElse(that: Listener): Listener = Listener {
+      e =>
+        try {
+          self.onEvent(e)
+        } catch {
+          case _: Throwable => that.onEvent(e)
+        }
+    }
 
     /**
      * EXERCISE 3
@@ -350,7 +479,9 @@ object ui_events {
      * Add a `runOn` operator that returns a Listener that will call this one's
      * `onEvent` callback on the specified `ExecutionContext`.
      */
-    def runOn(ec: scala.concurrent.ExecutionContext): Listener = ???
+    def runOn(ec: scala.concurrent.ExecutionContext): Listener = Listener {
+      e => ec.execute(() => self.onEvent(e))
+    }
 
     /**
      * EXERCISE 4
@@ -358,8 +489,13 @@ object ui_events {
      * Add a `debug` unary operator that will call the `onEvent` callback, but
      * before it does, it will print out the game event to the console.
      */
-    def debug: Listener = ???
+    def debug: Listener = Listener {
+      e =>
+        println(e)
+        self.onEvent(e)
+    }
   }
+
 }
 
 /**
@@ -369,6 +505,7 @@ object ui_events {
  * knowledge of key concepts.
  */
 object education {
+
   // Here the type `A` represents the type of answer the user is expected to
   // fill in when answering the question.
   sealed trait Question[A] {
@@ -376,14 +513,20 @@ object education {
 
     def checker: Checker[A]
   }
+
   object Question {
+
     final case class Text(question: String, checker: Checker[String]) extends Question[String]
+
     final case class MultipleChoice(question: String, choices: Vector[String], checker: Checker[Int])
-        extends Question[Int]
+      extends Question[Int]
+
     final case class TrueFalse(question: String, checker: Checker[Boolean]) extends Question[Boolean]
+
   }
 
   final case class QuizResult(correctPoints: Int, bonusPoints: Int, wrongPoints: Int, wrong: Vector[String]) {
+    self =>
     def totalPoints: Int = correctPoints - wrongPoints
 
     def toBonus: QuizResult = QuizResult(0, bonusPoints + correctPoints, 0, Vector.empty)
@@ -394,8 +537,14 @@ object education {
      * Add a `+` operator that combines this quiz result with the specified
      * quiz result.
      */
-    def +(that: QuizResult): QuizResult = ???
+    def +(that: QuizResult): QuizResult = QuizResult(
+      self.correctPoints + that.correctPoints,
+      self.bonusPoints + that.bonusPoints,
+      self.wrongPoints + that.wrongPoints,
+      self.wrong ++ that.wrong
+    )
   }
+
   object QuizResult {
 
     /**
@@ -404,24 +553,25 @@ object education {
      * Add an `empty` QuizResult that, when combined with any quiz result,
      * returns that same quiz result.
      */
-    def empty: QuizResult = ???
+    def empty: QuizResult = QuizResult(0, 0, 0, Vector.empty)
   }
 
-  final case class Quiz(run: () => QuizResult) { self =>
+  final case class Quiz(run: () => QuizResult) {
+    self =>
 
     /**
      * EXERCISE 3
      *
      * Add an operator `+` that appends this quiz to the specified quiz.
      */
-    def +(that: Quiz): Quiz = ???
+    def +(that: Quiz): Quiz = Quiz(() => self.run() + that.run())
 
     /**
      * EXERCISE 4
      *
      * Add a unary operator `bonus` that marks this quiz as a bonus quiz.
      */
-    def bonus: Quiz = ???
+    def bonus: Quiz = Quiz(() => run().toBonus)
 
     /**
      * EXERCISE 5
@@ -430,15 +580,24 @@ object education {
      * enough, as determined by the specified cutoff, will do the `ifPass`
      * quiz afterward; but otherwise, do the `ifFail` quiz.
      */
-    def conditional(cutoff: Int)(ifPass: Quiz, ifFail: Quiz): Quiz = ???
+    def conditional(cutoff: Int)(ifPass: Quiz, ifFail: Quiz): Quiz =
+      Quiz { () =>
+        val firstResult = self.run()
+        firstResult + (if (firstResult.totalPoints >= cutoff) {
+          ifPass.run()
+        } else {
+          ifFail.run()
+        })
+      }
   }
+
   object Quiz {
     private def grade[A](f: String => A, checker: Checker[A]): QuizResult =
       scala.util.Try {
         val submittedAnswer = f(scala.io.StdIn.readLine())
 
         checker.isCorrect(submittedAnswer) match {
-          case Left(string)  => QuizResult(0, 0, checker.points, Vector(string))
+          case Left(string) => QuizResult(0, 0, checker.points, Vector(string))
           case Right(string) => QuizResult(checker.points, 0, 0, Vector.empty)
         }
       }.getOrElse(QuizResult(0, 0, checker.points, Vector("The format of your answer was not recognized")))
@@ -467,13 +626,15 @@ object education {
      * Add an `empty` Quiz that does not ask any questions and only returns
      * an empty QuizResult.
      */
-    def empty: Quiz = ???
+    def empty: Quiz = Quiz(() => QuizResult.empty)
   }
 
   final case class Checker[-A](points: Int, isCorrect: A => Either[String, Unit])
+
   object Checker {
     def isTrue(points: Int): Checker[Boolean] =
       Checker(points, if (_) Right(()) else Left("The correct answer is true"))
+
     def isFalse(points: Int): Checker[Boolean] =
       Checker(points, v => if (!v) Right(()) else Left("The correct answer is false"))
 
@@ -492,5 +653,11 @@ object education {
    * to a simpler bonus question with fewer bonus points.
    */
   lazy val exampleQuiz: Quiz =
-    Quiz(Question.TrueFalse("Is coffee the best hot beverage on planet earth?", Checker.isTrue(10)))
+    (Quiz(Question.TrueFalse("Is coffee the best hot beverage on planet earth?", Checker.isTrue(10)))
+      + Quiz(Question.MultipleChoice("What is your favorite IO library?", Vector("Catz.Effect", "ZIO"), Checker.isMultipleChoice(10)(1)))
+      + Quiz(Question.Text("What is your favorite programming language?", Checker.isText(5)("Scala")))
+      + Quiz(Question.Text("This is hard bonus test", Checker.isText(100)("bonus"))).bonus.conditional(10)(
+      Quiz.empty,
+      Quiz(Question.Text("This is simple bonus question.", Checker.isText(40)("simple"))).bonus
+    ))
 }

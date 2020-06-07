@@ -1,5 +1,7 @@
 package net.degoes
 
+import java.time.Instant
+
 /*
  * INTRODUCTION
  *
@@ -35,8 +37,10 @@ package net.degoes
  * static data or formula computed from other cells.
  */
 object spreadsheet {
+
   trait Spreadsheet {
     def cols: Int
+
     def rows: Int
 
     def valueAt(col: Int, row: Int): CellContents
@@ -56,6 +60,7 @@ object spreadsheet {
   }
 
   final case class Range(minRow: Option[Int], maxRow: Option[Int], minCol: Option[Int], maxCol: Option[Int])
+
   object Range {
     def column(i: Int): Range = Range(None, None, Some(i), Some(i))
 
@@ -65,10 +70,14 @@ object spreadsheet {
   final case class Cell(col: Int, row: Int, contents: CellContents)
 
   sealed trait CellContents
+
   object CellContents {
+
     final case class Error(message: String) extends CellContents
-    final case class Str(value: String)     extends CellContents
-    final case class Dbl(value: Double)     extends CellContents
+
+    final case class Str(value: String) extends CellContents
+
+    final case class Dbl(value: Double) extends CellContents
 
     /**
      * EXERCISE 1
@@ -76,7 +85,8 @@ object spreadsheet {
      * Design a subtype of `CellContents` called `CalculatedValue`, which
      * represents a value that is dynamically computed from a spreadsheet.
      */
-    final case class CalculatedValue() extends CellContents { self =>
+    final case class CalculatedValue(calculation: Spreadsheet => CellContents) extends CellContents {
+      self =>
 
       /**
        * EXERCISE 2
@@ -84,7 +94,15 @@ object spreadsheet {
        * Add some operators to transform one `CalculatedValue` into another `CalculatedValue`. For
        * example, one operator could "negate" a double expression.
        */
-      def negate: CalculatedValue = ???
+      def negate: CalculatedValue = CalculatedValue(
+        s =>
+          self.calculation(s) match {
+            case e: Error => e
+            case _: Str => Error("can not negate a string value")
+            case Dbl(value) => Dbl(-1 * value)
+            case cv: CalculatedValue => cv.negate
+          }
+      )
 
       /**
        * EXERCISE 3
@@ -92,8 +110,18 @@ object spreadsheet {
        * Add some operators to combine `CalculatedValue`. For example, one operator
        * could sum two double expressions.
        */
-      def sum(that: CalculatedValue): CalculatedValue = ???
+      def sum(that: CalculatedValue): CalculatedValue = CalculatedValue(
+        s =>
+          (self.calculation(s), that.calculation(s)) match {
+            case (Error(message), _) => Error(message)
+            case (_, Error(message)) => Error(message)
+            case (Dbl(v1), Dbl(v2)) => Dbl(v1 + v2)
+            case (Str(v1), Str(v2)) => Str(v1 + v2)
+            case p@(CalculatedValue(_), CalculatedValue(_)) => p._1.sum(p._2)
+          }
+      )
     }
+
     object CalculatedValue {
 
       /**
@@ -101,7 +129,7 @@ object spreadsheet {
        *
        * Add a constructor that makes an CalculatedValue from a CellContents.
        */
-      def const(contents: CellContents): CalculatedValue = ???
+      def const(contents: CellContents): CalculatedValue = CalculatedValue(_ => contents)
 
       /**
        * EXERCISE 5
@@ -109,8 +137,9 @@ object spreadsheet {
        * Add a constructor that provides access to the value of the
        * specified cell, identified by col/row.
        */
-      def at(col: Int, row: Int): CalculatedValue = ???
+      def at(col: Int, row: Int): CalculatedValue = CalculatedValue(_.valueAt(col, row))
     }
+
   }
 
   /**
@@ -118,7 +147,9 @@ object spreadsheet {
    *
    * Describe a cell whose contents are the sum of other cells.
    */
-  lazy val cell1: Cell = ???
+  lazy val cell1: Cell = Cell(0, 3,
+    CellContents.CalculatedValue.at(0, 1).sum(CellContents.CalculatedValue.at(0, 2))
+  )
 }
 
 /**
@@ -127,6 +158,7 @@ object spreadsheet {
  * Consider an application designed to extract, transform, and load data.
  */
 object etl {
+
   import scala.util._
 
   /**
@@ -142,14 +174,15 @@ object etl {
   /**
    * Represents a stream of data.
    */
-  final case class DataStream(foreach: (Try[DataRow] => Unit) => Unit) { self =>
+  final case class DataStream(foreach: (Try[DataRow] => Unit) => Unit) {
+    self =>
     def delete(name: String): DataStream = map(_.delete(name))
 
     def orElse(that: => DataStream): DataStream =
       DataStream { callback =>
         self.foreach {
           case Failure(exception) => that.foreach(callback)
-          case x                  => callback(x)
+          case x => callback(x)
         }
       }
 
@@ -170,7 +203,29 @@ object etl {
    * Also mock out, but do not implement, a method on each repository type called
    * `load`, which returns a `DataStream`.
    */
-  type DataRepo
+  sealed trait DataRepo {
+    def load: DataStream
+  }
+
+  object DataRepo {
+
+    final case class Ftp() extends DataRepo {
+      override def load: DataStream = ???
+    }
+
+    final case class URL() extends DataRepo {
+      override def load: DataStream = ???
+    }
+
+    final case class AwsS3() extends DataRepo {
+      override def load: DataStream = ???
+    }
+
+    final case class Database() extends DataRepo {
+      override def load: DataStream = ???
+    }
+
+  }
 
   /**
    * EXERCISE 2
@@ -178,7 +233,19 @@ object etl {
    * Design a data type that models the type of primitives the ETL pipeline
    * has access to. This will include string, numeric, and date/time data.
    */
-  type DataType
+  sealed trait DataType
+
+  object DataType {
+
+    case object Null extends DataType
+
+    case object Str extends DataType
+
+    case object Numeric extends DataType
+
+    case object DateTime extends DataType
+
+  }
 
   /**
    * EXERCISE 3
@@ -195,12 +262,73 @@ object etl {
     def coerce(otherType: DataType): Option[DataValue]
   }
 
+  object DataValue {
+
+    case object Null extends DataValue {
+      self =>
+      override def dataType: DataType = DataType.Null
+
+      override def coerce(otherType: DataType): Option[DataValue] = otherType match {
+        case DataType.Null => Some(self)
+        case DataType.Str => None
+        case DataType.Numeric => None
+        case DataType.DateTime => None
+      }
+    }
+
+    final case class Str(value: String) extends DataValue {
+      self =>
+      override def dataType: DataType = DataType.Str
+
+      override def coerce(otherType: DataType): Option[DataValue] = otherType match {
+        case DataType.Null => Some(Null)
+        case DataType.Str => Some(self)
+        case DataType.Numeric => try {
+          Some(Integer(value.toInt))
+        } catch {
+          case _: NumberFormatException => None
+        }
+        case DataType.DateTime => try {
+          Some(DateTime(Instant.parse(value)))
+        } catch {
+          case _: NumberFormatException => None
+        }
+      }
+    }
+
+    final case class Integer(value: Long) extends DataValue {
+      self =>
+      override def dataType: DataType = DataType.Numeric
+
+      override def coerce(otherType: DataType): Option[DataValue] = otherType match {
+        case DataType.Null => Some(Null)
+        case DataType.Str => Some(Str(value.toString))
+        case DataType.Numeric => Some(self)
+        case DataType.DateTime => None
+      }
+    }
+
+    final case class DateTime(value: Instant) extends DataValue {
+      self =>
+      override def dataType: DataType = DataType.DateTime
+
+      override def coerce(otherType: DataType): Option[DataValue] = otherType match {
+        case DataType.Null => Some(Null)
+        case DataType.Str => Some(Str(self.value.toString))
+        case DataType.Numeric => Some(Integer(self.value.toEpochMilli))
+        case DataType.DateTime => Some(self)
+      }
+    }
+
+  }
+
   /**
    * `Pipeline` is a data type that models a transformation from an input data
    * set into an output data step, as a series of one or more individual
    * operations.
    */
-  final case class Pipeline(run: () => DataStream) { self =>
+  final case class Pipeline(run: () => DataStream) {
+    self =>
 
     /**
      * EXERCISE 4
@@ -208,7 +336,14 @@ object etl {
      * Add a `merge` operator that models the merge of the output of this
      * pipeline with the output of the specified pipeline.
      */
-    def merge(that: Pipeline): Pipeline = ???
+    def merge(that: Pipeline): Pipeline = Pipeline(
+      () => DataStream(
+        callback => {
+          self.run().foreach(callback)
+          that.run().foreach(callback)
+        }
+      )
+    )
 
     /**
      * EXERCISE 5
@@ -216,36 +351,68 @@ object etl {
      * Add an `orElse` operator that models applying this pipeline, but if it
      * fails, switching over and trying another pipeline.
      */
-    def orElse(that: Pipeline): Pipeline = ???
+    def orElse(that: Pipeline): Pipeline = Pipeline(
+      () => self.run().orElse(that.run())
+    )
 
     /**
      * EXERCISE 6
      *
      * Add an operator to rename a column in a pipeline.
      */
-    def rename(oldName: String, newName: String): Pipeline = ???
+    def rename(oldName: String, newName: String): Pipeline = Pipeline(
+      () => self.run().rename(oldName, newName)
+    )
 
     /**
      * EXERCISE 7
      *
      * Add an operator to coerce a column into a specific type in a pipeline.
      */
-    def coerce(column: String, newType: DataType): Pipeline = ???
+    def coerce(column: String, newType: DataType): Pipeline = Pipeline(
+      () => self.run().map {
+        old =>
+          old.row.get(column).flatMap(_.coerce(newType)) match {
+            case Some(value) =>
+              old.copy(row = old.row.updated(column, value))
+            case None =>
+              old
+          }
+      }
+    )
 
     /**
      * EXERCISE 8
      *
      * Add an operator to delete a column in a pipeline.
      */
-    def delete(column: String): Pipeline = ???
+    def delete(column: String): Pipeline = Pipeline(
+      () => self.run().delete(column)
+    )
 
     /**
      * EXERCISE 9
      *
      * To replace nulls in the specified column with a specified value.
      */
-    def replaceNulls(column: String, defaultValue: DataValue): Pipeline = ???
+    def replaceNulls(column: String, defaultValue: DataValue): Pipeline = Pipeline(
+      () => self.run().map {
+        old =>
+          old.row.get(column).map {
+            case DataValue.Null => defaultValue
+            case s: DataValue.Str => s
+            case i: DataValue.Integer => i
+            case d: DataValue.DateTime => d
+          } match {
+            case Some(value) =>
+              old.copy(row = old.row.updated(column, value))
+            case None =>
+              old
+          }
+      }
+    )
   }
+
   object Pipeline {
 
     /**
@@ -254,7 +421,9 @@ object etl {
      * Add a constructor for `Pipeline` that models extraction of data from
      * the specified data repository.
      */
-    def extract(repo: DataRepo): Pipeline = ???
+    def extract(repo: DataRepo): Pipeline = Pipeline(
+      () => repo.load
+    )
   }
 
   /**
@@ -265,7 +434,9 @@ object etl {
    * into a column "first_name", and which coerces the "age" column into an
    * integer type.
    */
-  lazy val pipeline: Pipeline = ???
+  lazy val pipeline: Pipeline = Pipeline.extract(DataRepo.URL()).replaceNulls("age", DataValue.Str("0")).rename(
+    "fname", "first_name"
+  ).coerce("age", DataType.Numeric)
 }
 
 /**
@@ -281,14 +452,23 @@ object pricing_fetcher {
   def fetch(directory: java.io.File, url: java.net.URL, schedule: Schedule): Unit = ???
 
   sealed trait DayOfWeek
+
   object DayOfWeek {
-    case object Sunday    extends DayOfWeek
-    case object Monday    extends DayOfWeek
-    case object Tuesday   extends DayOfWeek
+
+    case object Sunday extends DayOfWeek
+
+    case object Monday extends DayOfWeek
+
+    case object Tuesday extends DayOfWeek
+
     case object Wednesday extends DayOfWeek
-    case object Thursday  extends DayOfWeek
-    case object Friday    extends DayOfWeek
-    case object Saturday  extends DayOfWeek
+
+    case object Thursday extends DayOfWeek
+
+    case object Friday extends DayOfWeek
+
+    case object Saturday extends DayOfWeek
+
   }
 
   final case class Time(minuteOfHour: Int, hourOfDay: Int, dayOfWeek: DayOfWeek, weekOfMonth: Int, monthOfYear: Int)
@@ -298,6 +478,7 @@ object pricing_fetcher {
    * which specifies whether or not it is time to perform a fetch.
    */
   final case class Schedule(fetchNow: Time => Boolean) {
+    self =>
     /*
      * EXERCISE 1
      *
@@ -305,7 +486,9 @@ object pricing_fetcher {
      * yield the union of those schedules. That is, the fetch will occur
      * only when either of the schedules would have performed a fetch.
      */
-    def union(that: Schedule): Schedule = ???
+    def union(that: Schedule): Schedule = Schedule(
+      t => self.fetchNow(t) || that.fetchNow(t)
+    )
 
     /**
      * EXERCISE 2
@@ -314,7 +497,9 @@ object pricing_fetcher {
      * yield the intersection of those schedules. That is, the fetch will occur
      * only when both of the schedules would have performed a fetch.
      */
-    def intersection(that: Schedule): Schedule = ???
+    def intersection(that: Schedule): Schedule = Schedule(
+      t => self.fetchNow(t) && that.fetchNow(t)
+    )
 
     /**
      * EXERCISE 3
@@ -323,8 +508,11 @@ object pricing_fetcher {
      * when the original schedule would fetch, and will always fetch when the
      * original schedule would not fetch.
      */
-    def negate: Schedule = ???
+    def negate: Schedule = Schedule(
+      t => !self.fetchNow(t)
+    )
   }
+
   object Schedule {
 
     /**
@@ -333,7 +521,10 @@ object pricing_fetcher {
      * Create a constructor for Schedule that models fetching on specific weeks
      * of the month.
      */
-    def weeks(weeks: Int*): Schedule = ???
+    def weeks(weeks: Int*): Schedule = Schedule(
+      t =>
+        weeks.contains(t.weekOfMonth)
+    )
 
     /**
      * EXERCISE 5
@@ -341,7 +532,10 @@ object pricing_fetcher {
      * Create a constructor for Schedule that models fetching on specific days
      * of the week.
      */
-    def daysOfTheWeek(daysOfTheWeek: DayOfWeek*): Schedule = ???
+    def daysOfTheWeek(daysOfTheWeek: DayOfWeek*): Schedule = Schedule(
+      t =>
+        daysOfTheWeek.contains(t.dayOfWeek)
+    )
 
     /**
      * EXERCISE 6
@@ -349,7 +543,9 @@ object pricing_fetcher {
      * Create a constructor for Schedule that models fetching on specific
      * hours of the day.
      */
-    def hoursOfTheDay(hours: Int*): Schedule = ???
+    def hoursOfTheDay(hours: Int*): Schedule = Schedule(
+      t => hours.contains(t.hourOfDay)
+    )
 
     /**
      * EXERCISE 7
@@ -357,7 +553,9 @@ object pricing_fetcher {
      * Create a constructor for Schedule that models fetching on specific minutes
      * of the hour.
      */
-    def minutesOfTheHour(minutes: Int*): Schedule = ???
+    def minutesOfTheHour(minutes: Int*): Schedule = Schedule(
+      t => minutes.contains(t.minuteOfHour)
+    )
   }
 
   /**
@@ -366,5 +564,11 @@ object pricing_fetcher {
    * Create a schedule that repeats every Wednesday, at 6:00 AM and 12:00 PM,
    * and at 5:30, 6:30, and 7:30 every Thursday.
    */
-  lazy val schedule: Schedule = ???
+  lazy val schedule: Schedule = Schedule.daysOfTheWeek(DayOfWeek.Wednesday).intersection(
+    Schedule.hoursOfTheDay(6, 12)
+  ).union(
+    Schedule.daysOfTheWeek(DayOfWeek.Thursday).intersection(
+      Schedule.hoursOfTheDay(5, 6, 7).intersection(Schedule.minutesOfTheHour(30))
+    )
+  )
 }
