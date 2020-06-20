@@ -117,7 +117,11 @@ object spreadsheet {
             case (_, Error(message)) => Error(message)
             case (Dbl(v1), Dbl(v2)) => Dbl(v1 + v2)
             case (Str(v1), Str(v2)) => Str(v1 + v2)
-            case p@(CalculatedValue(_), CalculatedValue(_)) => p._1.sum(p._2)
+            case (CalculatedValue(c1), CalculatedValue(c2)) =>
+              val x: CalculatedValue = CalculatedValue(c1)
+              val y: CalculatedValue = CalculatedValue(c2)
+              x.sum(y).calculation(s)
+            case (_, _) => Error("type mismatch")
           }
       )
     }
