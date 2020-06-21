@@ -56,36 +56,33 @@ object email_filter3 {
 
     def ||(that: EmailFilter): EmailFilter = EmailFilter.InclusiveOr(self, that)
 
-    def ^^(that: EmailFilter): EmailFilter = EmailFilter.ExclusiveOr(self, that)
+    def ^^(that: EmailFilter): EmailFilter =  EmailFilter.And(
+      EmailFilter.InclusiveOr(self, that),
+      EmailFilter.Not(EmailFilter.And(self, that))
+    )
   }
   object EmailFilter {
     final case object Always                                            extends EmailFilter
     final case object Never                                             extends EmailFilter
+    final case class Not(filter: EmailFilter)                           extends EmailFilter
     final case class And(left: EmailFilter, right: EmailFilter)         extends EmailFilter
     final case class InclusiveOr(left: EmailFilter, right: EmailFilter) extends EmailFilter
-    final case class ExclusiveOr(left: EmailFilter, right: EmailFilter) extends EmailFilter
-    final case class SenderEquals(target: Address)                      extends EmailFilter
-    final case class SenderNotEquals(target: Address)                   extends EmailFilter
-    final case class RecipientEquals(target: Address)                   extends EmailFilter
-    final case class RecipientNotEquals(target: Address)                extends EmailFilter
     final case class SenderIn(targets: Set[Address])                    extends EmailFilter
     final case class RecipientIn(targets: Set[Address])                 extends EmailFilter
     final case class BodyContains(phrase: String)                       extends EmailFilter
-    final case class BodyNotContains(phrase: String)                    extends EmailFilter
     final case class SubjectContains(phrase: String)                    extends EmailFilter
-    final case class SubjectNotContains(phrase: String)                 extends EmailFilter
 
     val always: EmailFilter = Always
 
-    val never: EmailFilter = Always
+    val never: EmailFilter = Never
 
-    def senderIs(sender: Address): EmailFilter = SenderEquals(sender)
+    def senderIs(sender: Address): EmailFilter = senderIn(Set(sender))
 
-    def senderIsNot(sender: Address): EmailFilter = SenderNotEquals(sender)
+    def senderIsNot(sender: Address): EmailFilter = Not(senderIs(sender))
 
-    def recipientIs(recipient: Address): EmailFilter = RecipientEquals(recipient)
+    def recipientIs(recipient: Address): EmailFilter = recipientIn(Set(recipient))
 
-    def recipientIsNot(recipient: Address): EmailFilter = RecipientNotEquals(recipient)
+    def recipientIsNot(recipient: Address): EmailFilter = Not(recipientIs(recipient))
 
     def senderIn(senders: Set[Address]): EmailFilter = SenderIn(senders)
 
@@ -93,11 +90,11 @@ object email_filter3 {
 
     def bodyContains(phrase: String): EmailFilter = BodyContains(phrase)
 
-    def bodyDoesNotContain(phrase: String): EmailFilter = BodyNotContains(phrase)
+    def bodyDoesNotContain(phrase: String): EmailFilter = Not(bodyContains(phrase))
 
     def subjectContains(phrase: String): EmailFilter = SubjectContains(phrase)
 
-    def subjectDoesNotContain(phrase: String): EmailFilter = SubjectNotContains(phrase)
+    def subjectDoesNotContain(phrase: String): EmailFilter = Not(subjectContains(phrase))
   }
 }
 
@@ -123,4 +120,26 @@ object ui_components {
 
     def draw(): Unit
   }
+
+  sealed trait Move {
+    self =>
+
+    def andThen(that: Move): Move = Move.AndThen(self, that)
+  }
+
+  object Move {
+    final case class TurnLeft(degrees: Int) extends Move
+    case object GoForward extends Move
+    case object GoBackward extends Move
+    final case class AndThen(first: Move, second: Move) extends Move
+
+    def turnLeft(degrees: Int): Move = TurnLeft(degrees)
+    def turnRight(degrees: Int): Move = TurnLeft(-degrees)
+    def goForward: Move = GoForward
+    def goBackward: Move = GoBackward
+  }
+
+  final case class Point(x: Int, y: Int)
+  def draw(motion: Move, origin: Point) = ???
+
 }
