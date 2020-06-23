@@ -17,10 +17,14 @@ package net.degoes
  * calculate values in a user-defined way.
  */
 object expr {
+
   sealed trait CalculatedValue[+A]
+
   object CalculatedValue {
+
     final case class Integer(value: Int) extends CalculatedValue[Int]
-    final case class Str(value: String)  extends CalculatedValue[String]
+
+    final case class Str(value: String) extends CalculatedValue[String]
 
     /**
      * EXERCISE 1
@@ -31,7 +35,7 @@ object expr {
      * NOTE: Be sure to modify the `calculate` method below, so that it can
      * handle the new operation.
      */
-    final case class Add()
+    final case class Add(left: CalculatedValue[Int], right: CalculatedValue[Int]) extends CalculatedValue[Int]
 
     /**
      * EXERCISE 2
@@ -42,7 +46,7 @@ object expr {
      * NOTE: Be sure to modify the `calculate` method below, so that it can
      * handle the new operation.
      */
-    final case class Subtract()
+    final case class Subtract(left: CalculatedValue[Int], right: CalculatedValue[Int]) extends CalculatedValue[Int]
 
     /**
      * EXERCISE 3
@@ -53,7 +57,7 @@ object expr {
      * NOTE: Be sure to modify the `calculate` method below, so that it can
      * handle the new operation.
      */
-    final case class Multiply()
+    final case class Multiply(left: CalculatedValue[Int], right: CalculatedValue[Int]) extends CalculatedValue[Int]
 
     /**
      * EXERCISE 4
@@ -64,7 +68,7 @@ object expr {
      * NOTE: Be sure to modify the `calculate` method below, so that it can
      * handle the new operation.
      */
-    final case class Concat()
+    final case class Concat(left: CalculatedValue[String], right: CalculatedValue[String]) extends CalculatedValue[String]
 
     /**
      * EXERCISE 5
@@ -75,7 +79,8 @@ object expr {
      * NOTE: Be sure to modify the `calculate` method below, so that it can
      * handle the new operation.
      */
-    final case class StartsWith()
+    final case class StartsWith(str: CalculatedValue[String], prefix: String) extends CalculatedValue[Boolean]
+
   }
 
   import CalculatedValue._
@@ -83,7 +88,17 @@ object expr {
   def calculate[A](expr: CalculatedValue[A]): A =
     expr match {
       case Integer(v) => v
-      case Str(v)     => v
+      case Str(v) => v
+      case Add(left, right) =>
+        calculate(left) + calculate(right)
+      case Subtract(left, right) =>
+        calculate(left) - calculate(right)
+      case Multiply(left, right) =>
+        calculate(left) * calculate(right)
+      case Concat(left, right) =>
+        calculate(left) + calculate(right)
+      case StartsWith(str, prefix) =>
+        calculate(str).startsWith(prefix)
     }
 }
 
@@ -91,8 +106,11 @@ object expr {
  * PARSERS - EXERCISE SET 2
  */
 object parser {
+
   sealed trait Parser[+A]
+
   object Parser {
+
     final case object OneChar extends Parser[Char]
 
     /**
@@ -104,7 +122,7 @@ object parser {
      * NOTE: Be sure to modify the `parse` method below, so that it can
      * handle the new operation.
      */
-    final case class Repeat()
+    final case class Repeat[A](min: Option[Int], max: Option[Int], parser: Parser[A]) extends Parser[A]
 
     /**
      * EXERCISE 2
@@ -115,7 +133,7 @@ object parser {
      * NOTE: Be sure to modify the `parse` method below, so that it can
      * handle the new operation.
      */
-    final case class Succeed()
+    final case class Succeed[A](a: A) extends Parser[A]
 
     /**
      * EXERCISE 3
@@ -125,7 +143,7 @@ object parser {
      * NOTE: Be sure to modify the `parse` method below, so that it can
      * handle the new operation.
      */
-    final case class Fail()
+    final case class Fail(error: String) extends Parser[Nothing]
 
     /**
      * EXERCISE 4
@@ -136,7 +154,7 @@ object parser {
      * NOTE: Be sure to modify the `parse` method below, so that it can
      * handle the new operation.
      */
-    final case class OrElse()
+    final case class OrElse[A](first: Parser[A], alternative: Parser[A]) extends Parser[A]
 
     /**
      * EXERCISE 5
@@ -147,7 +165,8 @@ object parser {
      * NOTE: Be sure to modify the `parse` method below, so that it can
      * handle the new operation.
      */
-    final case class Sequence[A, B]()
+    final case class Sequence[A, B](first: Parser[A], second: Parser[B]) extends Parser[(A, B)]
+
   }
 
   import Parser._
@@ -158,5 +177,33 @@ object parser {
         input.headOption
           .map((a: Char) => Right(input.drop(1) -> a))
           .getOrElse(Left("The input to the parser has no remaining characters"))
+      case Succeed(a) => Right(input -> a)
+      case Fail(error) => Left(error)
+      case OrElse(first, alternative) =>
+        parse(first, input).fold(
+          _ => parse(alternative, input),
+          i => Right(i)
+        )
+      case Sequence(first, second) =>
+        for {
+          r1 <- parse(first, input)
+          r2 <- parse(second, r1._1)
+        } yield (r2._1, (r1._2, r2._2))
+      case Repeat(min, max, parser) =>
+        val m = min.getOrElse(0)
+        val mx = max.getOrElse(m)
+        val baseline = (0 to m).foldLeft(Right(input -> None): Either[String, (String, Option[A])]) {
+          case (e, _) =>
+            e.flatMap {
+              case (i, _) => parse(parser, i).map { case (i, v) => i -> Some(v) }
+            }
+        }
+        val after = (0 to (mx - m)).foldLeft(baseline) {
+          case (e, _) =>
+            e.flatMap {
+              case (i, _) => parse(parser, i).map { case (i, v) => i -> Some(v) }
+            }
+        }
+        after.flatMap { case (i, maybeOutput) => maybeOutput.toRight("no output").map { o => i -> o } }
     }
 }
