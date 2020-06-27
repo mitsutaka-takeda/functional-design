@@ -19,34 +19,75 @@ package net.degoes
  * Consider a software application that manages reward programs for businesses.
  */
 object loyalty_program {
+
   import java.time.Instant
 
   sealed trait Supplier
+
   object Supplier {
-    case object Amex           extends Supplier
+
+    case object Amex extends Supplier
+
     case object UnitedAirlines extends Supplier
+
   }
 
   sealed trait LoyaltyCurrency
+
   object LoyaltyCurrency {
+
     case object Amex extends LoyaltyCurrency
+
     type Amex = Amex.type
   }
 
   sealed trait FiscalCurrency
+
   object FiscalCurrency {
+
     final case object USD extends FiscalCurrency
+
   }
 
   final case class Amount[Currency](value: BigDecimal, currency: Currency) {
     def +(that: Amount[Currency]): Amount[Currency] =
       copy(value = value + that.value)
   }
+
   object Amount {
-    implicit def AmountNumeric[Currency]: Numeric[Amount[Currency]] = ???
+    // todo I'm not sure if this instance of Numeric for Currency is correct, since I don't take a possibility of different currencies.
+    // How can I compare USD to JPY? For example.
+    implicit def AmountNumeric[Currency]: Numeric[Amount[Currency]] = new Numeric[Amount[Currency]] {
+
+      override def plus(x: Amount[Currency], y: Amount[Currency]): Amount[Currency] =
+        Amount(x.value + y.value, x.currency)
+
+      override def minus(x: Amount[Currency], y: Amount[Currency]): Amount[Currency] =
+        Amount(x.value - y.value, x.currency)
+
+      override def times(x: Amount[Currency], y: Amount[Currency]): Amount[Currency] =
+        Amount(x.value * y.value, x.currency)
+
+      override def negate(x: Amount[Currency]): Amount[Currency] = Amount(-x.value, x.currency)
+
+      // todo I can't create an instance of Amount[Currency] since here we don't have value for the type Currency.
+      override def fromInt(x: Int): Amount[Currency] = ???
+
+      // Amount(BigDecimal(x), FiscalCurrency.USD)
+
+      override def toInt(x: Amount[Currency]): Int = x.value.toInt
+
+      override def toLong(x: Amount[Currency]): Long = x.value.toLong
+
+      override def toFloat(x: Amount[Currency]): Float = x.value.toFloat
+
+      override def toDouble(x: Amount[Currency]): Double = x.value.toDouble
+
+      override def compare(x: Amount[Currency], y: Amount[Currency]): Int = x.value.compare(y.value)
+    }
   }
 
-  type FiscalAmount  = Amount[FiscalCurrency]
+  type FiscalAmount = Amount[FiscalCurrency]
   type LoyaltyAmount = Amount[LoyaltyCurrency]
 
   final case class Portfolio(holdings: Map[LoyaltyCurrency, LoyaltyAmount]) {
@@ -83,14 +124,14 @@ object loyalty_program {
    * then they may be eligible for an automatic tier promotion.
    */
   sealed trait RuleSet {
-
+    self =>
     /**
      * EXERCISE 1
      *
      * Augment `RuleSet` with an operator that models combining two rule sets
      * into one, applying the actions of both.
      */
-    def &&(that: RuleSet): RuleSet = ???
+    def &&(that: RuleSet): RuleSet = RuleSet.Both(self, that)
 
     /**
      * EXERCISE 2
@@ -99,9 +140,14 @@ object loyalty_program {
      * into one, applying either the left (if it results in an action) or the
      * right (if the left does not result in an action)
      */
-    def ||(that: RuleSet): RuleSet = ???
+    def ||(that: RuleSet): RuleSet = RuleSet.OrElse(self, that)
   }
+
   object RuleSet {
+
+    final case class Both(first: RuleSet, second: RuleSet) extends RuleSet
+
+    final case class OrElse(first: RuleSet, second: RuleSet) extends RuleSet
 
     /**
      * EXERCISE 3
@@ -110,10 +156,12 @@ object loyalty_program {
      * `SystemAction` whenever a `RuleCalculation[Boolean]` evaluates to
      * true.
      */
-    final case class When() extends RuleSet
+    final case class When(rule: RuleCalculation[Boolean], action: SystemAction) extends RuleSet
+
   }
 
-  sealed trait RuleCalculation[+A] { self =>
+  sealed trait RuleCalculation[+A] {
+    self =>
 
     /**
      * EXERCISE 4
@@ -125,10 +173,7 @@ object loyalty_program {
     def &&(that: RuleCalculation[Boolean])(implicit ev: A <:< Boolean): RuleCalculation[Boolean] = {
       // This line of code "proves" that the "A" type is actually a Boolean:
       val self1: RuleCalculation[Boolean] = self.widen[Boolean]
-
-      val _ = self1 // DELETE ME
-
-      ???
+      RuleCalculation.And(self1, that)
     }
 
     /**
@@ -142,9 +187,7 @@ object loyalty_program {
       // This line of code "proves" that the "A" type is actually a Boolean:
       val self1: RuleCalculation[Boolean] = self.widen[Boolean]
 
-      val _ = self1 // DELETE ME
-
-      ???
+      RuleCalculation.Or(self1, that)
     }
 
     /**
@@ -157,9 +200,7 @@ object loyalty_program {
       // This line of code "proves" that the "A" type is actually a Boolean:
       val self1: RuleCalculation[Boolean] = self.widen[Boolean]
 
-      val _ = self1 // DELETE ME
-
-      ???
+      RuleCalculation.Negate(self1)
     }
 
     /**
@@ -174,9 +215,7 @@ object loyalty_program {
       // This line of code "proves" that the "A" type is actually a Currency:
       val self1: RuleCalculation[Currency] = self.widen[Currency]
 
-      val _ = self1 // DELETE ME
-
-      ???
+      RuleCalculation.GreaterThan(self1, that)
     }
 
     /**
@@ -188,14 +227,11 @@ object loyalty_program {
      * relation holds.
      */
     def >=[Currency: Numeric](
-      that: RuleCalculation[Currency]
-    )(implicit ev: A <:< Currency): RuleCalculation[Boolean] = {
+                               that: RuleCalculation[Currency]
+                             )(implicit ev: A <:< Currency): RuleCalculation[Boolean] = {
       // This line of code "proves" that the "A" type is actually a Currency:
       val self1: RuleCalculation[Currency] = self.widen[Currency]
-
-      val _ = self1 // DELETE ME
-
-      ???
+      RuleCalculation.GreaterThanOrEqual(self1, that)
     }
 
     /**
@@ -209,10 +245,7 @@ object loyalty_program {
     def <[Currency: Numeric](that: RuleCalculation[Currency])(implicit ev: A <:< Currency): RuleCalculation[Boolean] = {
       // This line of code "proves" that the "A" type is actually a Currency:
       val self1: RuleCalculation[Currency] = self.widen[Currency]
-
-      val _ = self1 // DELETE ME
-
-      ???
+      RuleCalculation.Negate(RuleCalculation.GreaterThanOrEqual(self1, that))
     }
 
     /**
@@ -224,26 +257,37 @@ object loyalty_program {
      * relation holds.
      */
     def <=[Currency: Numeric](
-      that: RuleCalculation[Currency]
-    )(implicit ev: A <:< Currency): RuleCalculation[Boolean] = {
+                               that: RuleCalculation[Currency]
+                             )(implicit ev: A <:< Currency): RuleCalculation[Boolean] = {
       // This line of code "proves" that the "A" type is actually a Currency:
       val self1: RuleCalculation[Currency] = self.widen[Currency]
-
-      val _ = self1 // DELETE ME
-
-      ???
+      RuleCalculation.Negate(RuleCalculation.GreaterThan(self1, that))
     }
 
     def widen[B](implicit ev: A <:< B): RuleCalculation[B] = RuleCalculation.Widen(self)(ev)
   }
+
   object RuleCalculation {
+
     final case class Widen[A, B](rc: RuleCalculation[A])(implicit val ev: A <:< B) extends RuleCalculation[B]
+
+    final case class And(lhs: RuleCalculation[Boolean], rhs: RuleCalculation[Boolean]) extends RuleCalculation[Boolean]
+
+    final case class Or(lhs: RuleCalculation[Boolean], rhs: RuleCalculation[Boolean]) extends RuleCalculation[Boolean]
+
+    final case class Negate(rc: RuleCalculation[Boolean]) extends RuleCalculation[Boolean]
+
+    final case class GreaterThan[Currency: Numeric](lhs: RuleCalculation[Currency], rhs: RuleCalculation[Currency]) extends RuleCalculation[Boolean]
+
+    final case class GreaterThanOrEqual[Currency: Numeric](lhs: RuleCalculation[Currency], rhs: RuleCalculation[Currency]) extends RuleCalculation[Boolean]
 
     /**
      * EXERCISE 11
      *
      * Add a constructor that models calculation of a constant value of the
      * specified type.
+     *
+     * Is is already solved? Do I need to add function to construct Constant[A]?
      */
     final case class Constant[A](value: A) extends RuleCalculation[A]
 
@@ -252,6 +296,8 @@ object loyalty_program {
      *
      * Add a constructor that models calculation of the price of an item that
      * the user buys, in a fiscal currency.
+     *
+     * todo Is there any difference between PurchasePrice and ItemPrice?
      */
     final case class PurchasePrice() extends RuleCalculation[FiscalAmount]
 
@@ -260,40 +306,60 @@ object loyalty_program {
      *
      * Add a constructor that models calculation of the price of an item that
      * the user buys, in a fiscal currency.
+     *
+     * todo What's the difference between PurchasePrise and ItemPrice?
      */
-    final case class ItemPrice()
+    final case class ItemPrice() extends RuleCalculation[FiscalAmount]
 
     /**
      * EXERCISE 14
      *
      * Add a constructor that models the number of days since the last purchase
      * of the user, as an integer.
+     *
      */
-    final case class DaysSinceLastPurchase()
+    final case class DaysSinceLastPurchase() extends RuleCalculation[Int]
+
   }
 
   sealed trait UserAction
+
   object UserAction {
-    final case class Spend(amount: FiscalCurrency)  extends UserAction
+
+    final case class Spend(amount: FiscalCurrency) extends UserAction
+
     final case class Return(amount: FiscalCurrency) extends UserAction
+
   }
 
   sealed trait SystemAction
+
   object SystemAction {
-    final case class Credit(amount: LoyaltyCurrency)         extends SystemAction
-    final case class Debit(amount: LoyaltyCurrency)          extends SystemAction
-    case object TierPromotion                                extends SystemAction
-    case object TierDemotion                                 extends SystemAction
+
+    final case class Credit(amount: LoyaltyCurrency) extends SystemAction
+
+    final case class Debit(amount: LoyaltyCurrency) extends SystemAction
+
+    case object TierPromotion extends SystemAction
+
+    case object TierDemotion extends SystemAction
+
     final case class ChangeStatus(status: UserProgramStatus) extends SystemAction
+
   }
 
   final case class Activity(action: Either[UserAction, SystemAction], instant: Instant)
 
   sealed trait UserProgramStatus
+
   object UserProgramStatus {
-    case object Active                                 extends UserProgramStatus
-    case object Inactive                               extends UserProgramStatus
+
+    case object Active extends UserProgramStatus
+
+    case object Inactive extends UserProgramStatus
+
     final case class Suspended(who: User, why: String) extends UserProgramStatus
+
   }
 
   /**
@@ -302,45 +368,86 @@ object loyalty_program {
    * Construct a rule set that describes promotion to the next tier, as
    * well as demotion, and changing the status of the user to inactive.
    */
-  def ruleSet: RuleSet = ???
+  def ruleSet: RuleSet = {
+    import RuleSet._
+    import RuleCalculation._
+    import Amount.AmountNumeric
+
+    def dollar(v: BigDecimal) = Constant(Amount(v, FiscalCurrency.USD: FiscalCurrency))
+
+    (When(PurchasePrice() > dollar(200), SystemAction.TierPromotion)
+      || (
+      When(DaysSinceLastPurchase() > Constant(20), SystemAction.ChangeStatus(UserProgramStatus.Inactive))
+        &&
+        When(PurchasePrice() < dollar(50), SystemAction.TierDemotion)
+      ))
+  }
 
   /**
    * Example of running a rule set on the history of a user to produce system actions.
+   *
+   * todo How can I implement this?
    */
   def run(history: List[UserAction], ruleSet: RuleSet): List[SystemAction] = ???
 
   /**
    * Example of describing a rule set in a human-readable form.
    */
-  def describe(ruleSet: RuleSet): String = ???
+  def describe(ruleSet: RuleSet): String = ruleSet match {
+    case RuleSet.Both(first, second) => s"apply both ${describe(first)} and ${describe(second)}"
+    case RuleSet.OrElse(first, second) => s"apply either ${describe(first)} or ${describe(second)}."
+    case RuleSet.When(rule, action) =>
+      def describeRule(rule: RuleCalculation[Boolean]): String = ???
+      def describeSystemAction(a: SystemAction): String = a match {
+        case SystemAction.Credit(amount) => s"credit a user by ${amount.toString}"
+        case SystemAction.Debit(amount) => s"debit a user by ${amount.toString}"
+        case SystemAction.TierPromotion => "promote a user to next tier"
+        case SystemAction.TierDemotion =>"demote a user to lower tier"
+        case SystemAction.ChangeStatus(status) => s"change the status of a user to ${status.toString}"
+      }
+
+      s"When ${describeRule(rule)}, apply an action: ${describeSystemAction(action)}."
+  }
 }
 
 /**
  * CALENDER SCHEDULING APP - EXERCISE SET 2
  */
 object calendar {
+
   final case class HourOfDay(value: Int) {
     def to(that: HourOfDay): Stream[HourOfDay] = (value to that.value).toStream.map(HourOfDay(_))
 
     def until(that: HourOfDay): Stream[HourOfDay] = (value until that.value).toStream.map(HourOfDay(_))
   }
+
   object HourOfDay {
     val min = HourOfDay(0)
     val max = HourOfDay(24)
   }
 
   sealed trait DayOfWeek
+
   object DayOfWeek {
-    case object Sunday    extends DayOfWeek
-    case object Monday    extends DayOfWeek
-    case object Tuesday   extends DayOfWeek
+
+    case object Sunday extends DayOfWeek
+
+    case object Monday extends DayOfWeek
+
+    case object Tuesday extends DayOfWeek
+
     case object Wednesday extends DayOfWeek
-    case object Thursday  extends DayOfWeek
-    case object Friday    extends DayOfWeek
-    case object Saturday  extends DayOfWeek
+
+    case object Thursday extends DayOfWeek
+
+    case object Friday extends DayOfWeek
+
+    case object Saturday extends DayOfWeek
+
   }
 
   final case class TimeSpan(start: HourOfDay, end: HourOfDay)
+
   object TimeSpan {
     val empty: TimeSpan = TimeSpan(HourOfDay(0), HourOfDay(0))
   }
@@ -351,8 +458,10 @@ object calendar {
    * Explore the structure of `CalendarRegion` by deciding what composable,
    * orthogonal operations to add to the data type.
    */
-  final case class CalendarAppointment(span: TimeSpan) { self =>
+  final case class CalendarAppointment(span: TimeSpan) {
+    self =>
   }
+
   object CalendarAppointment {
     val empty: CalendarAppointment = CalendarAppointment(TimeSpan.empty)
   }
@@ -365,8 +474,10 @@ object calendar {
    *
    * HINT: Consider the union, intersection, & complement of two daily schedules.
    */
-  final case class DailySchedule(set: Set[CalendarAppointment]) { self =>
+  final case class DailySchedule(set: Set[CalendarAppointment]) {
+    self =>
   }
+
   object DailySchedule {
     val empty: DailySchedule = DailySchedule(Set())
   }
@@ -378,6 +489,7 @@ object calendar {
    * orthogonal operations to add to the data type.
    */
   final case class MonthlySchedule(daysOfMonth: Vector[DailySchedule]) {}
+
   object MonthlySchedule {
     val empty: MonthlySchedule = MonthlySchedule(Vector())
   }
@@ -407,23 +519,29 @@ object cms {
    *
    * Add whatever transformations and combinations have well-defined semantics.
    */
-  sealed trait Html { self =>
+  sealed trait Html {
+    self =>
     final def isEmpty: Boolean = self match {
-      case Html.Zero                => true
+      case Html.Zero => true
       case Html.One(_, _, children) => false
-      case Html.Many(elements)      => elements.forall(_.isEmpty)
+      case Html.Many(elements) => elements.forall(_.isEmpty)
     }
 
     final def childList: List[Html] = self match {
-      case Html.Zero                => Nil
+      case Html.Zero => Nil
       case Html.One(_, _, children) => children.childList
-      case Html.Many(elements)      => elements.flatMap(_.childList)
+      case Html.Many(elements) => elements.flatMap(_.childList)
     }
   }
+
   object Html {
-    case object Zero                                                                       extends Html
+
+    case object Zero extends Html
+
     final case class One(tagName: String, attributes: Map[String, String], children: Html) extends Html
-    final case class Many(elements: List[Html])                                            extends Html
+
+    final case class Many(elements: List[Html]) extends Html
+
   }
 
   final case class User(email: String)
@@ -431,6 +549,7 @@ object cms {
   trait PageContext {
     def url: java.net.URL
   }
+
   trait UserContext {
     def user: User
   }
@@ -444,7 +563,9 @@ object cms {
   sealed trait Component[-Context, -State] {
     def render(context: Context, state: State): Html
   }
+
   object Component {
+
     final case class Leaf[Context, State](render0: (Context, State) => Html) extends Component[Context, State] {
       def render(context: Context, state: State): Html = render0(context, state)
     }
@@ -458,6 +579,7 @@ object cms {
      */
     val components = ???
   }
+
 }
 
 /**
@@ -469,6 +591,7 @@ object cms {
  * that allow clients of the JSON endpoint to fix the issues with their data.
  */
 object input_validation {
+
   sealed trait Json {
 
     /**
@@ -479,20 +602,29 @@ object input_validation {
      */
     def get(path: JsonPath): Either[String, Json] = ???
   }
+
   object Json {
-    case object Null                                  extends Json
-    final case class Bool(value: Boolean)             extends Json
-    final case class Number(value: BigDecimal)        extends Json
-    final case class Text(value: String)              extends Json
-    final case class Sequence(value: List[Json])      extends Json
+
+    case object Null extends Json
+
+    final case class Bool(value: Boolean) extends Json
+
+    final case class Number(value: BigDecimal) extends Json
+
+    final case class Text(value: String) extends Json
+
+    final case class Sequence(value: List[Json]) extends Json
+
     final case class Object(value: Map[String, Json]) extends Json
+
   }
 
-  sealed trait JsonPath { self =>
+  sealed trait JsonPath {
+    self =>
     def +(that: JsonPath): JsonPath =
       that match {
-        case JsonPath.Identity             => self
-        case JsonPath.Field(parent, name)  => JsonPath.Field(self + parent, name)
+        case JsonPath.Identity => self
+        case JsonPath.Field(parent, name) => JsonPath.Field(self + parent, name)
         case JsonPath.Index(parent, index) => JsonPath.Index(self + parent, index)
       }
 
@@ -500,10 +632,14 @@ object input_validation {
 
     def index(index: Int): JsonPath = JsonPath.Index(self, index)
   }
+
   object JsonPath {
-    case object Identity                                   extends JsonPath
+
+    case object Identity extends JsonPath
+
     final case class Field(parent: JsonPath, name: String) extends JsonPath
-    final case class Index(parent: JsonPath, index: Int)   extends JsonPath
+
+    final case class Index(parent: JsonPath, index: Int) extends JsonPath
 
     def identity: JsonPath = Identity
   }
@@ -522,6 +658,7 @@ object input_validation {
    * 9. Verify that all elements in an array meet certain requirements.
    */
   type Validation[+A]
+
   object Validation {}
 
   /**
@@ -538,25 +675,39 @@ object input_validation {
  * through a flexible graph of components.
  */
 object data_processing {
-  sealed trait Schema { self =>
+
+  sealed trait Schema {
+    self =>
     def &(that: Schema): Schema = Schema.Intersect(self, that)
 
     def |(that: Schema): Schema = Schema.Union(self, that)
 
     def ??(description: String): Schema = Schema.Described(description, self)
   }
+
   object Schema {
-    case object Null                                                extends Schema
-    case object Bool                                                extends Schema
-    case object Number                                              extends Schema
-    case object Str                                                 extends Schema
-    case object Date                                                extends Schema
-    case object DateTime                                            extends Schema
+
+    case object Null extends Schema
+
+    case object Bool extends Schema
+
+    case object Number extends Schema
+
+    case object Str extends Schema
+
+    case object Date extends Schema
+
+    case object DateTime extends Schema
+
     final case class Described(description: String, schema: Schema) extends Schema
-    final case class Field(key: String, value: Schema)              extends Schema
-    final case class Intersect(left: Schema, right: Schema)         extends Schema
-    final case class Union(left: Schema, right: Schema)             extends Schema
-    final case class Sequence(elementSchema: Schema)                extends Schema
+
+    final case class Field(key: String, value: Schema) extends Schema
+
+    final case class Intersect(left: Schema, right: Schema) extends Schema
+
+    final case class Union(left: Schema, right: Schema) extends Schema
+
+    final case class Sequence(elementSchema: Schema) extends Schema
 
     def field(name: String, value: Schema): Schema = Field(name, value)
 
@@ -573,4 +724,5 @@ object data_processing {
    * value with another type.
    */
   sealed trait Transformation
+
 }
